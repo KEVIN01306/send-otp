@@ -1,49 +1,33 @@
-import type { NextFunction, Request, Response } from "express";
-import { ZodError, type ZodTypeAny } from "zod";
-import ResponseHttp from "../http/response.http.js";
-import { ParamsDictionary } from 'express-serve-static-core';
+import { Request, Response, NextFunction } from 'express';
+import { ZodSchema, ZodError } from 'zod';
 
-export class ValidatedMiddleware {
-
-    public validateBody(schema: ZodTypeAny) {
-        return (req: Request, res: Response, next: NextFunction) => {
-            try {
-                req.body = schema.parse(req.body);
-                next();
-            } catch (error) {
-                if (error instanceof ZodError) {
-                    return res.status(400).json(ResponseHttp.validation(error));
-                }
-                next(error);
-            }
-        };
+export const validateRequest = (schema: {
+  body?: ZodSchema<any>;
+  query?: ZodSchema<any>;
+  params?: ZodSchema<any>;
+}) => {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (schema.body) {
+        req.body = await schema.body.parseAsync(req.body);
+      }
+      if (schema.query) {
+        req.query = await schema.query.parseAsync(req.query);
+      }
+      if (schema.params) {
+        req.params = await schema.params.parseAsync(req.params);
+      }
+      next();
+    } catch (error) {
+      if (error instanceof ZodError) {
+        const errorMessages = error.issues.map((issue) => issue.message).join(', ');
+        res.status(400).json({
+          success: false,
+          error: errorMessages || 'Parámetros de solicitud inválidos',
+        });
+        return;
+      }
+      next(error);
     }
-
-    public validateQuery(schema: ZodTypeAny) {
-        return async (req: Request, res: Response, next: NextFunction) => {
-            try {
-                res.locals.query = await schema.parseAsync(req.query);
-                next();
-            } catch (error) {
-                if (error instanceof ZodError) {
-                    return res.status(400).json(ResponseHttp.validation(error));
-                }
-                next(error);
-            }
-        };
-    }
-
-    public validateParams(schema: ZodTypeAny) {
-        return (req: Request, res: Response, next: NextFunction) => {
-            try {
-                req.params = schema.parse(req.params) as ParamsDictionary;
-                next();
-            } catch (error) {
-                if (error instanceof ZodError) {
-                    return res.status(400).json(ResponseHttp.validation(error));
-                }
-                next(error);
-            }
-        };
-    }
-}
+  };
+};

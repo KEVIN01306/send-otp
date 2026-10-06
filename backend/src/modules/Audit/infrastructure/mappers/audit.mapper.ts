@@ -1,15 +1,15 @@
-import type { AuditLog, AuditAction } from "../../domain/audit-log.entity.js";
+import { AuditLog as PrismaAuditLog } from '@prisma/client';
+import { AuditLogEntity } from '../../domain/audit-log.entity.js';
 
 export class AuditMapper {
-    static toDomain(log: any): AuditLog {
-        return {
-            id: log.id,
-            userId: log.userId,
-            action: log.action as AuditAction,
-            resource: log.resource,
-            resourceId: log.resourceId,
-            details: log.details,
-            createdAt: log.createdAt
-        };
-    }
+  public static toEntity(raw: PrismaAuditLog): AuditLogEntity {
+    return {
+      id: raw.id,
+      projectId: raw.projectId,
+      action: raw.action,
+      resource: raw.resource,
+      details: raw.details as Record<string, any> | null,
+      createdAt: raw.createdAt,
+    };
+  }
 }

@@ -1,18 +1,22 @@
-import { Router } from "express";
-import path from "path";
-import express from "express";
-import { ErrorMiddleware } from "@app/middleware/Error.middleware.js";
-import AuthRoutes from "@modules/Auth/presentation/auth.routes.js";
-import UsersRoutes from "@modules/Users/presentation/users.routes.js";
-import AuditRoutes from "@modules/Audit/presentation/audit.routes.js";
+import { Router } from 'express';
+import { otpRouter } from '../modules/Otp/presentation/otp.routes.js';
+import { emailRouter } from '../modules/Email/presentation/email.routes.js';
+import { adminRouter } from '../modules/Projects/presentation/admin.routes.js';
 
 const router = Router();
 
+// Health Check Endpoint
+router.get('/health', (_req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    service: 'auth-otp-email-microservice',
+    timestamp: new Date().toISOString(),
+  });
+});
 
-router.use('/auth', AuthRoutes);
-router.use('/users', UsersRoutes);
-router.use('/audit', AuditRoutes);
-
-router.use(ErrorMiddleware)
+// API v1 Routes
+router.use('/api/v1/otp', otpRouter);
+router.use('/api/v1/email', emailRouter);
+router.use('/api/v1/admin', adminRouter);
 
 export default router;

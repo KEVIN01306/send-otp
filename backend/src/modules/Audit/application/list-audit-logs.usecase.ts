@@ -1,18 +1,10 @@
-import type { AuditRepository } from "../domain/audit.repository.js";
-import type { AuditLog } from "../domain/audit-log.entity.js";
-import AppError from "@shared/errors/AppError.js";
+import { IAuditRepository, ListAuditLogsFilters } from '../domain/audit.repository.js';
+import { AuditLogEntity } from '../domain/audit-log.entity.js';
 
 export class ListAuditLogsUseCase {
-    constructor(private readonly auditRepository: AuditRepository) {}
+  constructor(private auditRepository: IAuditRepository) {}
 
-    async execute(): Promise<AuditLog[]> {
-        try {
-            return await this.auditRepository.findAll();
-        } catch (error) {
-            if (error instanceof AppError) {
-                throw error;
-            }
-            throw new AppError("Error fetching audit logs", "INTERNAL_SERVER_ERROR", 500);
-        }
-    }
+  public async execute(filters?: ListAuditLogsFilters): Promise<AuditLogEntity[]> {
+    return this.auditRepository.listLogs(filters);
+  }
 }

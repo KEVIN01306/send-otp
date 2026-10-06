@@ -1,120 +1,592 @@
-# Arquitectura del Backend (Clean / Hexagonal Architecture)
+# 🏗️ ARQUITECTURA DEL SISTEMA — MICROSERVICIO CENTRAL DE AUTENTICACIÓN, OTP Y EMAIL
 
-Este proyecto está construido siguiendo los principios de la **Arquitectura Limpia (Clean Architecture)** y **Arquitectura Hexagonal (Ports and Adapters)**. El objetivo principal es la separación de responsabilidades, asegurando que la lógica de negocio central (el núcleo) no dependa de detalles externos como la base de datos, los frameworks web (Express) o librerías de terceros.
-
----
-
-## 1. Estructura de Carpetas (Por Módulo)
-
-El código está estructurado en módulos (por ejemplo, `Auth`, `Users`), y dentro de cada módulo se divide en 4 capas fundamentales:
-
-### 📁 `domain/` (Dominio)
-Es el núcleo de la aplicación. Aquí residen las reglas de negocio más puras.
-- **Qué va aquí:** Entidades (modelos de datos puros en TypeScript, sin métodos de base de datos), y las **Interfaces** de los repositorios y proveedores (los "Puertos").
-- **Regla de oro:** No debe importar absolutamente nada de las otras capas (`application`, `infrastructure`, `presentation`), ni de librerías externas (como Prisma, Express, etc).
-
-### 📁 `application/` (Aplicación / Casos de Uso)
-Contiene la lógica de la aplicación y orquesta el flujo de los datos.
-- **Qué va aquí:** Los Casos de Uso (Use Cases). Cada archivo debe representar una acción específica (ej. `login.usecase.ts`, `get-profile.usecase.ts`).
-- **Regla de oro:** 
-  - **Manejo de Errores:** Aquí es donde se deben hacer las validaciones lógicas del negocio y **se lanzan los errores usando `throw new AppError(...)`**. 
-  - **Uso de Repositorios:** Los Use Cases no saben si se usa Prisma, MySQL o Mongo. Solo llaman a los métodos definidos en la interfaz del repositorio del dominio (ej. `this.authRepository.findByEmail()`).
-
-### 📁 `infrastructure/` (Infraestructura)
-Esta capa es el límite exterior. Es la única que sabe con qué base de datos o herramientas de terceros nos estamos conectando.
-- **Qué va aquí:** 
-  - Implementaciones reales de los repositorios utilizando Prisma (ej. `prisma-auth.repository.ts`).
-  - Proveedores de servicios reales (ej. `jwt.provider.ts`, `argon2-hash.provider.ts`).
-  - **Mappers:** Transforman los objetos crudos que vienen de la base de datos (Prisma) a nuestras entidades puras de `domain/`.
-
-### 📁 `presentation/` (Presentación)
-Es la puerta de entrada a la aplicación (el lado del servidor web).
-- **Qué va aquí:** Controladores (`.controller.ts`), rutas (`.routes.ts`) y esquemas de validación (usando Zod).
-- **Regla de oro:** 
-  - El controlador **no contiene lógica de negocio**. Solo recibe la petición HTTP (`req`), extrae los datos, llama al Caso de Uso y responde (`res`) usando el formato estándar (`ResponseHttp.success`).
-  - Todo error es capturado aquí y pasado al middleware global mediante `catch(error) { next(error) }`.
+Servicio backend centralizado diseñado bajo **Clean Architecture / Hexagonal Architecture** para gestionar autenticación server-to-server mediante API Keys criptográficas, generación/validación de códigos OTP seguros, verificación de correos electrónicos y trazabilidad mediante auditoría estructurada.
 
 ---
 
-## 2. Reglas Principales de Desarrollo
-
-### Inyección de Dependencias (`.module.ts`)
-Para mantener el desacoplamiento, **nunca se debe instanciar un repositorio o proveedor dentro de un Use Case o Controller usando `new`**. Todo se debe inyectar por el constructor.
-En la raíz de cada módulo (ej. `auth.module.ts`) es donde ocurre la "magia" de ensamblar las piezas:
-1. Instanciamos Prisma y los proveedores (`HashProvider`, `JwtProvider`).
-2. Instanciamos el repositorio real pasándole la DB (`PrismaAuthRepository`).
-3. Instanciamos los casos de uso inyectándoles el repositorio y los proveedores.
-4. Finalmente, instanciamos el Controller inyectándole los casos de uso, para luego exportarlo y usarlo en las rutas.
-
-### Validaciones
-- **Sintácticas (Zod):** Validaciones de forma (que el email sea un email válido, que la contraseña tenga mínimo 8 caracteres). Esto se hace en la capa de `presentation/` a través de esquemas interceptados por un middleware (ej. `ValidatedMiddleware`).
-- **Semánticas (Negocio):** Validaciones lógicas (que el usuario exista, que la contraseña coincida). Estas se hacen en los Casos de Uso (`application/`) lanzando un `AppError`.
+## 📑 Tabla de Contenido
+1. [Objetivos y Principios](#-objetivos-y-principios)
+2. [Diagrama de Arquitectura y Flujo](#-diagrama-de-arquitectura-y-flujo)
+3. [Estructura del Proyecto](#-estructura-del-proyecto)
+4. [Patrón de Proveedor de Email (Email Provider Pattern)](#-patrón-de-proveedor-de-email-email-provider-pattern)
+5. [Modelo de Datos y Persistencia (Prisma ORM)](#-modelo-de-datos-y-persistencia-prisma-orm)
+6. [Seguridad y Criptografía](#-seguridad-y-criptografía)
+7. [Documentación Completa de Endpoints](#-documentación-completa-de-endpoints)
+8. [Variables de Entorno](#-variables-de-entorno)
+9. [Guía de Inicio Rápido y Comandos](#-guía-de-inicio-rápido-y-comandos)
+10. [Ejemplos de Integración (Server-to-Server)](#-ejemplos-de-integración-server-to-server)
 
 ---
 
-## 3. Guía Técnica: Módulo de Autenticación (Auth)
+## 🎯 Objetivos y Principios
 
-El módulo de Auth está diseñado para manejar la seguridad mediante JWT, guardando una única sesión activa por usuario en la base de datos (relación 1 a 1).
-
-### ¿Para qué sirve cada parte?
-
-- **`AuthUser` (Dominio):** Define la estructura del usuario en memoria. Tiene campos clave como `id`, `email`, `roles` y `permissions` extraídos a partir de una consulta relacional de Prisma (Role -> RolePermission).
-- **`AuthSession` (Dominio):** Representa la sesión. Contiene el `token` (refreshToken), `userId` y la fecha de expiración. 
-
-### ¿Cómo está conectado (Flujo de Login)?
-1. **Ruta (`auth.routes.ts`):** Recibe el POST en `/login` y pasa por el validador Zod.
-2. **Controller (`auth.controller.ts`):** Llama a `loginUseCase.execute()`.
-3. **Use Case (`login.usecase.ts`):**
-   - Llama a `authRepository.findByEmail()` para traer al usuario.
-   - Si no existe o está inactivo, hace `throw new AppError(...)`.
-   - Llama a `hashProvider.compare()` para verificar la contraseña.
-   - Si todo es correcto, llama a `jwtProvider.generateTokens()` generando 2 tokens:
-     - **Access Token:** Tiempo de vida corto (ej. 15 min). Se envía al frontend como payload de la petición HTTP. Incluye los `roles` y `permissions` incrustados.
-     - **Refresh Token:** Tiempo de vida largo (ej. 7 días). Se inyecta en una cookie `httpOnly` para mayor seguridad.
-   - Usa `authRepository.upsertSession()` asegurando que el nuevo Refresh Token sobrescriba la sesión previa en la base de datos para ese usuario único.
-4. **Respuesta:** El controller responde usando el estándar `ResponseHttp`.
-
-### El Middleware de Protección
-El `AuthMiddleware.routeProtect` lee el *Access Token* de la cabecera HTTP, lo verifica con el `jwtProvider` y extrae el usuario, guardándolo en `res.locals.user` para que casos de uso posteriores (como `GetProfileUseCase`) sepan de manera segura quién está ejecutando la petición sin tener que volver a consultar roles y permisos a la base de datos repetidamente.
+* **Server-to-Server:** Diseñado exclusivamente para consumo backend entre plataformas, microservicios y clientes autorizados.
+* **Aislamiento Multi-tenant por Proyectos:** Cada plataforma cliente está aislada bajo un `Project` con múltiples `ApiKey` independientes.
+* **Cero Almacenamiento en Texto Plano:** Ni API Keys ni códigos OTP se guardan en texto plano en base de datos ni se registran en logs.
+* **Provider Pattern Desacoplado:** El dominio define el contrato `IEmailProvider`. El envío con **Resend** es una implementación de infraestructura intercambiable sin afectar la lógica de negocio.
+* **Resistencia a Ataques:**
+  * Comparación constante con `crypto.timingSafeEqual` para prevenir Timing Attacks.
+  * Invalidación atómica para prevenir Replay Attacks y Race Conditions.
+  * Rate limiting y cooldown obligatorio de 60 segundos por correo/proyecto.
+  * Límite estricto de intentos fallidos (máximo 3 intentos).
+* **Trazabilidad Completa:** Cada acción relevante (`OTP_GENERATE`, `OTP_VERIFY`, `EMAIL_SENT`, `API_KEY_CREATED`, `API_KEY_REVOKED`, `RATE_LIMITED`, `AUTH_FAILED`) genera un registro en `audit_logs`.
 
 ---
 
-## 4. Guía Técnica: Módulo de Usuarios (Users)
+## 📐 Diagrama de Arquitectura y Flujo
 
-El módulo de usuarios permite gestionar las identidades dentro del sistema, implementando un CRUD estándar con una variación: **eliminación lógica**.
-
-### Entidades y DTOs (Data Transfer Objects)
-Para evitar la fuga de información sensible (como contraseñas o hashes) hacia las capas de presentación, la entidad central `User` se extiende en múltiples interfaces (`user.entity.ts`) que fungen como DTOs:
-- **`CreateUser`**: Tipado para los datos requeridos al crear.
-- **`UpdateUser`**: Tipado de campos opcionales permitidos en actualización.
-- **`GetUser`**: Entidad completa omitiendo el `passwordHash` (Ideal para retornar un perfil).
-- **`GetSimpleUser`**: Versión ligera del usuario, solo incluye información esencial (`id`, `firstName`, `lastName`, `email`, `isActive`), útil para operaciones como el listado en masa.
-
-Estos tipos especializados garantizan que tanto la base de datos (Prisma Repository) como los Casos de Uso expongan exclusivamente los datos permitidos a los Controladores.
-
-### Estructura de Casos de Uso
-- **`CreateUserUseCase`**: Hashea la contraseña utilizando `Argon2HashProvider` antes de guardarla. Valida que el email no exista.
-- **`UpdateUserUseCase`**: Permite cambiar datos básicos o contraseña. Valida colisiones de email en caso de ser actualizado.
-- **`ListUsersUseCase`**: Lista todos los usuarios devolviendo un arreglo de `GetSimpleUser`.
-- **`DisableUserUseCase` / `DeleteUserUseCase`**: Ambos ejecutan una baja lógica cambiando `isActive` a `false`. Esto previene que el usuario inicie sesión pero mantiene la integridad referencial para el historial de auditoría o transacciones pasadas.
-
-### Integración con Rutas y Validación
-Las rutas (`/users`) instancian explícitamente sus middlewares (`new AuthMiddleware()`, `new ValidatedMiddleware()`) para la inyección y protección. Utilizan Zod schemas (`CreateUserSchema`, etc.) aplicados vía `validateBody` o `validateParams` para rechazar peticiones mal formadas en la capa de presentación.
-
-### Manejo de Errores
-El módulo implementa un manejo robusto de excepciones:
-1. **Infraestructura (`PrismaUsersRepository`)**: Todos los métodos están envueltos en `try-catch` y delegan las excepciones a `PrismaErrorMapper.map(error)`. Este mapper convierte errores nativos de base de datos (e.g. código `P2002` o `P2025`) en errores genéricos de persistencia (`UniqueConstraintError`, `NotFoundPersistenceError`).
-2. **Aplicación (Casos de Uso)**: Capturan dichos errores de persistencia mediante un bloque `try-catch` y los traducen a objetos `AppError` con un `statusCode` HTTP y un `code` manejable por la capa web, evitando así que los detalles de la base de datos se filtren a la API web.
+```
+               [ Cliente / Plataforma Externa ]
+                              │
+               (x-api-key / x-admin-key)
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      CAPA HTTP / APP                        │
+│  - Middleware: ApiKeyAuth / AdminAuth                       │
+│  - Middleware: Zod Request Validation                       │
+│  - Middleware: Structured Logger & Global Error Handler     │
+└─────────────────────────────┬───────────────────────────────┘
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    CAPA DE APLICACIÓN                       │
+│  - SendOtpUseCase            - VerifyOtpUseCase             │
+│  - SendVerificationEmailUseCase                             │
+│  - CreateProjectUseCase      - RevokeApiKeyUseCase          │
+└──────────────┬──────────────────────────────┬───────────────┘
+               ▼                              ▼
+┌──────────────────────────────┐ ┌────────────────────────────┐
+│      CAPA DE DOMINIO         │ │    PROVEEDORES / INFRA     │
+│  - Project & ApiKey Entities │ │  - IEmailProvider          │
+│  - OtpToken Entity           │ │    ├── ResendEmailProvider │
+│  - AuditLog Entity           │ │    └── MockEmailProvider   │
+│  - Crypto Utilities (SHA256) │ │  - Prisma Repositories     │
+└──────────────┬───────────────┘ └────────────┬───────────────┘
+               │                              │
+               ▼                              ▼
+        [ Base de Datos MySQL ]           [ Resend API ]
+```
 
 ---
 
-## 5. Guía Técnica: Módulo de Auditoría (Audit)
+## 📂 Estructura del Proyecto
 
-Este módulo se encarga de dejar un rastro inmutable (o cuasi inmutable) de las acciones importantes en el sistema.
+```text
+src/
+├── app/
+│   ├── middleware/
+│   │   ├── ApiKeyAuth.middleware.ts    # Validador de header x-api-key y proyectos activos
+│   │   ├── AdminAuth.middleware.ts     # Validador de x-admin-key (ADMIN_MASTER_KEY)
+│   │   ├── Validated.middleware.ts     # Validador universal de schemas Zod
+│   │   └── Error.middleware.ts         # Manejo centralizado de respuestas y errores
+│   └── http/
+│       └── response.http.ts
+│
+├── modules/
+│   ├── Projects/                       # Módulo de Proyectos y API Keys
+│   │   ├── projects.module.ts          # Composition Root (instancia repos, use cases y adminController)
+│   │   ├── domain/                     # Entidades y Contrato IProjectsRepository
+│   │   ├── application/                # CreateProject, RevokeKey, SetStatus UseCases
+│   │   ├── infrastructure/             # PrismaProjectsRepository y Mappers
+│   │   └── presentation/               # AdminController, AdminRoutes, Zod Schemas
+│   │
+│   ├── Otp/                            # Módulo de Generación y Validación OTP
+│   │   ├── otp.module.ts               # Composition Root (instancia repos, use cases y otpController)
+│   │   ├── domain/                     # Entidad OtpToken y Contrato IOtpRepository
+│   │   ├── application/                # SendOtpUseCase, VerifyOtpUseCase
+│   │   ├── infrastructure/             # PrismaOtpRepository (transaccional/atómico)
+│   │   └── presentation/               # OtpController, OtpRoutes, Zod Schemas
+│   │
+│   ├── Email/                          # Módulo de Email & Proveedores
+│   │   ├── email.module.ts             # Composition Root (instancia provider, use cases y emailController)
+│   │   ├── domain/
+│   │   │   └── email.provider.ts       # Contrato / Interface IEmailProvider
+│   │   ├── infrastructure/
+│   │   │   ├── resend-email.provider.ts # Implementación oficial con Resend SDK
+│   │   │   └── mock-email.provider.ts   # Proveedor en memoria para pruebas
+│   │   ├── application/                # SendVerificationEmailUseCase
+│   │   └── presentation/               # EmailController, EmailRoutes, Schemas
+│   │
+│   └── Audit/                          # Módulo de Auditoría y Trazabilidad
+│       ├── audit.module.ts             # Composition Root (instancia repositorio y use cases de auditoría)
+│       ├── domain/                     # Entidad AuditLog y Contrato IAuditRepository
+│       ├── application/                # CreateAuditLog, ListAuditLogs UseCases
+│       └── infrastructure/             # PrismaAuditRepository y Mappers
+│
+├── shared/
+│   ├── config/
+│   │   └── env.config.ts               # Configuración tipada de variables de entorno
+│   ├── errors/
+│   │   └── AppError.ts                 # Error de aplicación estándar con statusCode
+│   ├── logger/
+│   │   └── logger.ts                   # Logger estructurado con sanitización de secretos
+│   ├── tasks/
+│   │   └── otp-cleanup.task.ts         # Tarea periódica de purga de tokens expirados
+│   └── utils/
+│       └── crypto.util.ts              # Generación segura, hashing SHA-256 y safeTimingCompare
+│
+├── routes/
+│   └── index.routes.ts                 # Enrutador principal (/api/v1/*)
+├── app.ts                              # Configuración de Express, CORS y Middlewares
+└── server.ts                           # Arranque de servidor y ciclo de vida
+```
 
-### Estructura de Casos de Uso
-- **`CreateAuditLogUseCase`**: Caso de uso que puede ser invocado de forma interna por otros módulos o vía endpoint (si es necesario). Recibe una acción del Enum (`LOGIN`, `CREATE`, `UPDATE`, etc), el recurso afectado y el ID del usuario responsable.
-- **`ListAuditLogsUseCase`**: Expuesto a través del controlador para poder consultar el historial.
+---
 
-### Flujo de Auditoría
-El modelo `AuditLog` incluye un campo `details` de tipo JSON en Prisma. Esto es vital para guardar diffs (cambios) de las entidades afectadas o metadatos de la conexión (como IP y User-Agent) sin necesidad de tablas complejas.
+## 📧 Patrón de Proveedor de Email (Email Provider Pattern)
+
+Para garantizar desacoplamiento total de proveedores externos (Resend, SendGrid, AWS SES, Mailgun, etc.), el sistema implementa la interfaz en `src/modules/Email/domain/email.provider.ts`:
+
+```typescript
+export interface SendEmailOptions {
+  to: string | string[];
+  subject: string;
+  html: string;
+  text?: string;
+  from?: string;
+}
+
+export interface SendEmailResult {
+  success: boolean;
+  messageId?: string;
+  error?: string;
+}
+
+export interface IEmailProvider {
+  sendEmail(options: SendEmailOptions): Promise<SendEmailResult>;
+  sendOtpEmail(email: string, otpCode: string, expirationMinutes: number, projectName?: string): Promise<SendEmailResult>;
+  sendVerificationEmail(email: string, verificationUrl: string, projectName?: string): Promise<SendEmailResult>;
+}
+```
+
+### Implementaciones:
+1. **`ResendEmailProvider`**: Usa `resend` oficial, inyectando plantillas HTML estilizadas con modo oscuro profesional y fallback a texto plano.
+2. **`MockEmailProvider`**: Guarda envíos en memoria para pruebas automatizadas e integración sin agotar cuota.
+
+---
+
+## 🗄️ Modelo de Datos y Persistencia (Prisma ORM)
+
+```prisma
+enum TokenType {
+  OTP
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
+enum AuditAction {
+  PROJECT_CREATE
+  PROJECT_UPDATE
+  API_KEY_CREATED
+  API_KEY_REVOKED
+  OTP_GENERATE
+  OTP_VERIFY
+  EMAIL_SENT
+  AUTH_FAILED
+  RATE_LIMITED
+}
+
+model Project {
+  id          String     @id @default(uuid())
+  name        String     @db.VarChar(100)
+  slug        String     @unique @db.VarChar(100)
+  description String?    @db.Text
+  isActive    Boolean    @default(true) @map("is_active")
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+
+  apiKeys   ApiKey[]
+  otpTokens OtpToken[]
+  auditLogs AuditLog[]
+
+  @@map("projects")
+}
+
+model ApiKey {
+  id         String    @id @default(uuid())
+  projectId  String    @map("project_id")
+  name       String    @db.VarChar(100)
+  prefix     String    @db.VarChar(20)
+  keyHash    String    @unique @map("key_hash") @db.VarChar(255)
+  isActive   Boolean   @default(true) @map("is_active")
+  lastUsedAt DateTime? @map("last_used_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([keyHash, isActive])
+  @@index([projectId])
+  @@map("api_keys")
+}
+
+model OtpToken {
+  id             String    @id @default(uuid())
+  projectId      String    @map("project_id")
+  recipientEmail String    @map("recipient_email") @db.VarChar(255)
+  codeHash       String    @map("code_hash") @db.VarChar(255)
+  type           TokenType @default(OTP)
+  attempts       Int       @default(0)
+  maxAttempts    Int       @default(3) @map("max_attempts")
+  isUsed         Boolean   @default(false) @map("is_used")
+  expiresAt      DateTime  @map("expires_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, recipientEmail, type, isUsed, createdAt])
+  @@index([projectId, recipientEmail, createdAt])
+  @@index([projectId])
+  @@index([expiresAt])
+  @@map("otp_tokens")
+}
+
+model AuditLog {
+  id        String      @id @default(uuid())
+  projectId String?     @map("project_id")
+  action    AuditAction
+  resource  String      @db.VarChar(100)
+  details   Json?
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([projectId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+```
+
+---
+
+## 🔒 Seguridad y Criptografía
+
+| Componente | Mecanismo de Seguridad |
+| :--- | :--- |
+| **Generación de API Keys** | `crypto.randomBytes(24)` formato `auth_live_<hex>`. |
+| **Almacenamiento de API Keys** | Únicamente se guarda `SHA-256(rawApiKey)` y `prefix` (primeros 14 caracteres). |
+| **Generación de OTP** | `crypto.randomInt(0, 1000000)` con padding a exactamente 6 dígitos. |
+| **Almacenamiento de OTP** | Únicamente se guarda `SHA-256(code)`. |
+| **Comparación de Hashes** | `crypto.timingSafeEqual` con buffers de longitud constante (inmune a timing attacks). |
+| **Prevención de Replay** | Transacción atómica que marca `isUsed = true`. Un segundo intento falla con 400. |
+| **Rate Limiting / Cooldown** | Cooldown de 60 segundos por correo/proyecto (`RATE_LIMITED` en auditoría). |
+| **Límite de Intentos** | Máximo 3 intentos fallidos por OTP. Cada intento incorrecto incrementa el contador. |
+| **Sanitización de Logs** | Todos los logs pasan por filtro que ofusca `rawApiKey`, `otp`, `code`, `adminMasterKey`, etc. |
+
+---
+
+## 📡 Documentación Completa de Endpoints
+
+### Formato de Respuestas
+
+#### Respuesta Exitosa (200 / 201)
+```json
+{
+  "success": true,
+  "message": "Operación completada con éxito"
+}
+```
+
+#### Respuesta de Error (400 / 401 / 403 / 429 / 500)
+```json
+{
+  "success": false,
+  "error": "Descripción clara del error sin exponer trazas internas"
+}
+```
+
+---
+
+### 1. Enviar Código OTP
+* **Ruta:** `POST /api/v1/otp/send`
+* **Headers:**
+  * `x-api-key: auth_live_...`
+  * `Content-Type: application/json`
+* **Body:**
+```json
+{
+  "email": "usuario@ejemplo.com",
+  "type": "OTP"
+}
+```
+* **Respuesta Exitosa (200 OK):**
+```json
+{
+  "success": true,
+  "message": "Código OTP enviado correctamente",
+  "expiresAt": "2026-10-05T12:05:00.000Z"
+}
+```
+* **Errores Comunes:**
+  * `401 Unauthorized`: API key requerida.
+  * `403 Forbidden`: API key inválida o proyecto inactivo.
+  * `429 Too Many Requests`: Por favor espera 1 minuto antes de solicitar otro código.
+
+---
+
+### 2. Verificar Código OTP
+* **Ruta:** `POST /api/v1/otp/verify`
+* **Headers:**
+  * `x-api-key: auth_live_...`
+  * `Content-Type: application/json`
+* **Body:**
+```json
+{
+  "email": "usuario@ejemplo.com",
+  "code": "481920",
+  "type": "OTP"
+}
+```
+* **Respuesta Exitosa (200 OK):**
+```json
+{
+  "success": true,
+  "verified": true,
+  "message": "Código verificado con éxito"
+}
+```
+* **Errores Comunes:**
+  * `400 Bad Request`: "Código no encontrado o ya utilizado", "El código ha expirado", "Has superado el número máximo de intentos", "Código incorrecto".
+
+---
+
+### 3. Enviar Correo de Verificación
+* **Ruta:** `POST /api/v1/email/send-verification`
+* **Headers:**
+  * `x-api-key: auth_live_...`
+  * `Content-Type: application/json`
+* **Body:**
+```json
+{
+  "email": "usuario@ejemplo.com",
+  "redirectUrl": "https://mi-plataforma.com/verificar-cuenta"
+}
+```
+* **Respuesta Exitosa (200 OK):**
+```json
+{
+  "success": true,
+  "message": "Correo de verificación enviado correctamente"
+}
+```
+
+---
+
+### 4. Enviar Correo Personalizado (HTML Libre con Plantilla Centralizada)
+* **Ruta:** `POST /api/v1/email/send`
+* **Headers:**
+  * `x-api-key: auth_live_...`
+  * `Content-Type: application/json`
+* **Body:**
+```json
+{
+  "to": "usuario@ejemplo.com",
+  "subject": "Notificación Importante",
+  "htmlContent": "<p>Hola <strong>Juan</strong>, tu pedido ha sido procesado exitosamente.</p>",
+  "logoUrl": "https://pub-59913b0c53f044ad8a24e05f6a21ed2e.r2.dev/assets/logo-cad.png"
+}
+```
+* **Respuesta Exitosa (200 OK):**
+```json
+{
+  "success": true,
+  "message": "Correo enviado correctamente",
+  "messageId": "01a10e73-..."
+}
+```
+
+---
+
+### 5. Crear Proyecto y Generar API Key (Admin)
+* **Ruta:** `POST /api/v1/admin/projects`
+* **Headers:**
+  * `x-admin-key: super_secret_admin_master_key_123456`
+  * `Content-Type: application/json`
+* **Body:**
+```json
+{
+  "name": "E-commerce Tienda",
+  "slug": "ecommerce-tienda",
+  "keyName": "Backend Server Producción",
+  "description": "Plataforma principal de compras"
+}
+```
+* **Respuesta Exitosa (201 Created):**
+```json
+{
+  "success": true,
+  "project": {
+    "id": "c5a6b7c8-9d0e-1f2a-3b4c-5d6e7f8a9b0c",
+    "name": "E-commerce Tienda",
+    "slug": "ecommerce-tienda",
+    "description": "Plataforma principal de compras"
+  },
+  "apiKey": {
+    "name": "Backend Server Producción",
+    "prefix": "auth_live_9f8e",
+    "rawApiKey": "auth_live_9f8e7d6c5b4a3928170e1f2a3b4c5d6e7f8a9b0c1d2e3f4a"
+  }
+}
+```
+> ⚠️ **IMPORTANTE:** `rawApiKey` se muestra **única y exclusivamente** en esta respuesta. En la base de datos se almacena únicamente el hash SHA-256.
+
+---
+
+### 5. Revocar API Key (Admin)
+* **Ruta:** `POST /api/v1/admin/keys/revoke`
+* **Headers:**
+  * `x-admin-key: super_secret_admin_master_key_123456`
+* **Body:**
+```json
+{
+  "apiKeyId": "uuid-de-la-llave"
+}
+```
+* **Respuesta Exitosa (200 OK):**
+```json
+{
+  "success": true,
+  "message": "API Key revocada correctamente"
+}
+```
+
+---
+
+### 6. Activar o Desactivar Proyecto (Admin)
+* **Ruta:** `PATCH /api/v1/admin/projects/:id/status`
+* **Headers:**
+  * `x-admin-key: super_secret_admin_master_key_123456`
+* **Body:**
+```json
+{
+  "isActive": false
+}
+```
+* **Respuesta Exitosa (200 OK):**
+```json
+{
+  "success": true,
+  "project": {
+    "id": "uuid-del-proyecto",
+    "name": "E-commerce Tienda",
+    "slug": "ecommerce-tienda",
+    "isActive": false
+  }
+}
+```
+> Cuando un proyecto tiene `isActive: false`, todas sus API Keys quedan automáticamente bloqueadas.
+
+---
+
+### 7. Consultar Registros de Auditoría (Admin)
+* **Ruta:** `GET /api/v1/admin/audit?limit=20&projectId=uuid`
+* **Headers:**
+  * `x-admin-key: super_secret_admin_master_key_123456`
+
+---
+
+## ⚙️ Variables de Entorno
+
+```env
+# Base de Datos
+DATABASE_URL="mysql://root:password@localhost:3306/otp_microservice_db"
+
+# Servidor
+PORT=3000
+NODE_ENV=development
+
+# Proveedor Resend
+RESEND_API_KEY=re_your_resend_api_key_here
+EMAIL_FROM="Auth OTP Service <onboarding@resend.dev>"
+
+# Master Key Administrativa
+ADMIN_MASTER_KEY="super_secret_admin_master_key_123456"
+
+# Configuración OTP
+OTP_EXPIRATION_MINUTES=10
+OTP_MAX_ATTEMPTS=3
+OTP_COOLDOWN_SECONDS=60
+```
+
+---
+
+## 🚀 Guía de Inicio Rápido y Comandos
+
+### 1. Instalar dependencias
+```bash
+npm install
+```
+
+### 2. Sincronizar Base de Datos con Prisma
+```bash
+npx prisma db push
+```
+
+### 3. Ejecutar Seed Inicial (Crea el primer proyecto y API Key)
+```bash
+npm run seed  # o: npx tsx prisma/seed.ts
+```
+
+### 4. Ejecutar Suite Completa de Pruebas Automatizadas
+```bash
+npm test
+```
+
+### 5. Iniciar Servidor en Desarrollo
+```bash
+npm run dev
+```
+
+---
+
+## 💻 Ejemplos de Integración (Server-to-Server)
+
+### Node.js (Fetch API)
+
+```typescript
+const OTP_SERVICE_URL = 'http://localhost:3000/api/v1';
+const API_KEY = 'auth_live_tu_api_key_aqui';
+
+// 1. Enviar OTP
+async function sendOtp(email: string) {
+  const response = await fetch(`${OTP_SERVICE_URL}/otp/send`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': API_KEY,
+    },
+    body: JSON.stringify({ email, type: 'OTP' }),
+  });
+  return response.json();
+}
+
+// 2. Validar OTP
+async function verifyOtp(email: string, code: string) {
+  const response = await fetch(`${OTP_SERVICE_URL}/otp/verify`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': API_KEY,
+    },
+    body: JSON.stringify({ email, code, type: 'OTP' }),
+  });
+  return response.json();
+}
+```
+
+### cURL
+
+```bash
+# Solicitar OTP
+curl -X POST http://localhost:3000/api/v1/otp/send \
+  -H "x-api-key: auth_live_tu_llave" \
+  -H "Content-Type: application/json" \
+  -d '{"email": "cliente@ejemplo.com", "type": "OTP"}'
+
+# Validar OTP
+curl -X POST http://localhost:3000/api/v1/otp/verify \
+  -H "x-api-key: auth_live_tu_llave" \
+  -H "Content-Type: application/json" \
+  -d '{"email": "cliente@ejemplo.com", "code": "123456", "type": "OTP"}'
+```

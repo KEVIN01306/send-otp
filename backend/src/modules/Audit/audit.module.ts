@@ -1,14 +1,11 @@
-import { PrismaClient } from "@prisma/client";
-import { PrismaAuditRepository } from "./infrastructure/prisma-audit.repository.js";
-import { CreateAuditLogUseCase } from "./application/create-audit-log.usecase.js";
-import { ListAuditLogsUseCase } from "./application/list-audit-logs.usecase.js";
-import { AuditController } from "./presentation/audit.controller.js";
+import prismaClient from '../../infrastructure/config/prisma/prisma.config.js';
+import { PrismaAuditRepository } from './infrastructure/prisma-audit.repository.js';
+import { CreateAuditLogUseCase } from './application/create-audit-log.usecase.js';
+import { ListAuditLogsUseCase } from './application/list-audit-logs.usecase.js';
 
-const prisma = new PrismaClient();
+// Repositories
+export const auditRepository = new PrismaAuditRepository(prismaClient);
 
-export const auditRepository = new PrismaAuditRepository(prisma);
-
+// Use Cases
 export const createAuditLogUseCase = new CreateAuditLogUseCase(auditRepository);
 export const listAuditLogsUseCase = new ListAuditLogsUseCase(auditRepository);
-
-export const auditController = new AuditController(listAuditLogsUseCase);

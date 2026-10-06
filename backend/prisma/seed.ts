@@ -1,60 +1,65 @@
-import { PrismaClient } from '@prisma/client';
-import { Argon2HashProvider } from '../src/shared/infrastructure/argon2-hash.provider';
+import { PrismaClient, AuditAction } from '@prisma/client';
+import { CryptoUtil } from '../src/shared/utils/crypto.util.js';
 
 const prisma = new PrismaClient();
-const hashProvider = new Argon2HashProvider();
 
 async function main() {
+    console.log('🌱 Ejecutando seed de inicialización...');
 
-    const usuarioAdmin = await prisma.user.findFirst({
-        where: { email: 'kevin01306@gmail.com' },
-        include: {
-            userRoles: {
-                select: {
-                    role: {
-                        select: {
-                            name: true,
-                            rolePermissions: {
-                                select: {
-                                    permission: { select: { action: true } }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    // Check if default project exists
+    const existingProject = await prisma.project.findUnique({
+        where: { slug: 'default-app' },
     });
 
-    if (!usuarioAdmin) {
-        const passwordHash = await hashProvider.hash("12345678");
-        await prisma.user.create({
-            data: {
-                email: 'kevin01306@gmail.com',
-                passwordHash,
-                firstName: "Administrador",
-                lastName: "Sistema",
-                isActive: true,
-                userRoles: {
-                    create: {
-                        role: {
-                            connectOrCreate: {
-                                where: { name: "SUPER_ADMIN" },
-                                create: {
-                                    name: "SUPER_ADMIN",
-                                    description: "Administrador del sistema",
-                                    isSystem: true,
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        });
-    }
+    if (!existingProject) {
+        console.log('📦 Creando proyecto por defecto: "Default App"');
 
-    console.log("✅ Categorías default creadas exitosamente");
-    console.log("¡Seed ejecutado con éxito!");
+        const project = await prisma.project.create({
+            data: {
+                name: 'Default App',
+                slug: 'default-app',
+                description: 'Proyecto por defecto para integración y desarrollo',
+                isActive: true,
+            },
+        });
+
+        const rawApiKey = CryptoUtil.generateApiKey();
+        const prefix = CryptoUtil.extractPrefix(rawApiKey);
+        const keyHash = CryptoUtil.hashSha256(rawApiKey);
+
+        const apiKey = await prisma.apiKey.create({
+            data: {
+                projectId: project.id,
+                name: 'Development Master Key',
+                prefix,
+                keyHash,
+                isActive: true,
+            },
+        });
+
+        await prisma.auditLog.create({
+            data: {
+                projectId: project.id,
+                action: AuditAction.API_KEY_CREATED,
+                resource: 'api_key',
+                details: {
+                    apiKeyId: apiKey.id,
+                    prefix: apiKey.prefix,
+                    name: apiKey.name,
+                },
+            },
+        });
+
+        console.log('✅ Proyecto y API Key inicial creados con éxito.');
+        console.log('====================================================');
+        console.log(`📌 Project ID: ${project.id}`);
+        console.log(`📌 Project Slug: ${project.slug}`);
+        console.log(`🔑 RAW API KEY (Guardar ahora, se muestra una sola vez):`);
+        console.log(`👉 ${rawApiKey}`);
+        console.log('====================================================');
+    } else {
+        console.log('ℹ️ El proyecto "default-app" ya existe en la base de datos.');
+    }
 }
 
 main()
@@ -62,7 +67,6 @@ main()
         await prisma.$disconnect();
     })
     .catch(async (e) => {
-        console.error("❌ Error durante la ejecución del seed:", e); // IMPRESCINDIBLE para ver qué falla
+        console.error('❌ Error durante la ejecución del seed:', e);
         await prisma.$disconnect();
-        //process.exit(1);
     });

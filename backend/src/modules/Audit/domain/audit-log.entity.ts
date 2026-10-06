@@ -1,19 +1,10 @@
-export type AuditAction = 'LOGIN' | 'LOGOUT' | 'CREATE' | 'UPDATE' | 'DELETE';
+import { AuditAction } from '@prisma/client';
 
-export interface AuditLog {
-    id: string;
-    userId: string | null;
-    action: AuditAction;
-    resource: string;
-    resourceId: string | null;
-    details: any | null;
-    createdAt: Date;
-}
-
-export interface CreateAuditLog {
-    userId?: string | null;
-    action: AuditAction;
-    resource: string;
-    resourceId?: string | null;
-    details?: any;
+export interface AuditLogEntity {
+  id: string;
+  projectId?: string | null;
+  action: AuditAction;
+  resource: string;
+  details?: Record<string, any> | null;
+  createdAt: Date;
 }

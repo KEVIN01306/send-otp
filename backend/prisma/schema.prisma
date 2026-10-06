@@ -11,116 +11,104 @@ generator client {
 // ENUMS
 // ------------------------------------------------------
 
+enum TokenType {
+  OTP
+  EMAIL_VERIFICATION
+  PASSWORD_RESET
+}
+
 enum AuditAction {
-  LOGIN
-  LOGOUT
-  CREATE
-  UPDATE
-  DELETE
+  PROJECT_CREATE
+  PROJECT_UPDATE
+  API_KEY_CREATED
+  API_KEY_REVOKED
+  OTP_GENERATE
+  OTP_VERIFY
+  EMAIL_SENT
+  AUTH_FAILED
+  RATE_LIMITED
 }
 
 // ------------------------------------------------------
-// USER & AUTHENTICATION
+// PROJECTS & API KEYS SYSTEM (SERVER-TO-SERVER)
 // ------------------------------------------------------
 
-model User {
-  id           String   @id @default(uuid())
-  email        String   @unique
-  passwordHash String   @map("password_hash")
-  firstName    String   @map("first_name")
-  lastName     String   @map("last_name")
-  isActive     Boolean  @default(true) @map("is_active")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-
-  userRoles UserRole[]
-  session   UserSession?
-  auditLogs AuditLog[]
-
-  @@map("users")
-}
-
-model UserSession {
-  id        String   @id @default(uuid())
-  userId    String   @unique @map("user_id")
-  token     String   @unique @db.VarChar(500) // Access or Refresh Token reference
-  expiresAt DateTime @map("expires_at")
-  createdAt DateTime @default(now()) @map("created_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("user_sessions")
-}
-
-// ------------------------------------------------------
-// ROLES & PERMISSIONS SYSTEM (RBAC)
-// ------------------------------------------------------
-
-model Role {
+model Project {
   id          String   @id @default(uuid())
-  name        String   @unique // e.g., "SUPER_ADMIN", "ADMIN", "USER"
-  description String?
-  isSystem    Boolean  @default(false) @map("is_system") // System roles that cannot be deleted
+  name        String   @db.VarChar(100)
+  slug        String   @unique @db.VarChar(100)
+  description String?  @db.Text
+  isActive    Boolean  @default(true) @map("is_active")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  userRoles       UserRole[]
-  rolePermissions RolePermission[]
+  apiKeys   ApiKey[]
+  otpTokens OtpToken[]
+  auditLogs AuditLog[]
 
-  @@map("roles")
+  @@map("projects")
 }
 
-model Permission {
-  id          String   @id @default(uuid())
-  action      String   @unique // Key string, e.g., "users:create", "system:audit:read"
-  description String?
-  createdAt   DateTime @default(now()) @map("created_at")
+model ApiKey {
+  id         String    @id @default(uuid())
+  projectId  String    @map("project_id")
+  name       String    @db.VarChar(100)
+  prefix     String    @db.VarChar(20)
+  keyHash    String    @unique @map("key_hash") @db.VarChar(255)
+  isActive   Boolean   @default(true) @map("is_active")
+  lastUsedAt DateTime? @map("last_used_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
 
-  rolePermissions RolePermission[]
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  @@map("permissions")
-}
-
-// Join Table: Users <-> Roles
-model UserRole {
-  userId     String   @map("user_id")
-  roleId     String   @map("role_id")
-  assignedAt DateTime @default(now()) @map("assigned_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
-
-  @@id([userId, roleId])
-  @@map("user_roles")
-}
-
-// Join Table: Roles <-> Permissions
-model RolePermission {
-  roleId       String   @map("role_id")
-  permissionId String   @map("permission_id")
-  assignedAt   DateTime @default(now()) @map("assigned_at")
-
-  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
-
-  @@id([roleId, permissionId])
-  @@map("role_permissions")
+  @@index([keyHash, isActive])
+  @@index([projectId])
+  @@map("api_keys")
 }
 
 // ------------------------------------------------------
-// AUDIT SYSTEM
+// OTP & TOKENS MANAGEMENT
+// ------------------------------------------------------
+
+model OtpToken {
+  id             String    @id @default(uuid())
+  projectId      String    @map("project_id")
+  recipientEmail String    @map("recipient_email") @db.VarChar(255)
+  codeHash       String    @map("code_hash") @db.VarChar(255)
+  type           TokenType @default(OTP)
+  attempts       Int       @default(0)
+  maxAttempts    Int       @default(3) @map("max_attempts")
+  isUsed         Boolean   @default(false) @map("is_used")
+  expiresAt      DateTime  @map("expires_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, recipientEmail, type, isUsed, createdAt])
+  @@index([projectId, recipientEmail, createdAt])
+  @@index([projectId])
+  @@index([expiresAt])
+  @@map("otp_tokens")
+}
+
+// ------------------------------------------------------
+// AUDIT LOGS SYSTEM
 // ------------------------------------------------------
 
 model AuditLog {
-  id         String      @id @default(uuid())
-  userId     String?     @map("user_id")
-  action     AuditAction
-  resource   String // Affected module or entity e.g., "auth", "user"
-  resourceId String?     @map("resource_id")
-  details    Json? // Metadata: IP, User-Agent, Changes Diffs, etc.
-  createdAt  DateTime    @default(now()) @map("created_at")
+  id        String      @id @default(uuid())
+  projectId String?     @map("project_id")
+  action    AuditAction
+  resource  String      @db.VarChar(100)
+  details   Json?
+  createdAt DateTime    @default(now()) @map("created_at")
 
-  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
+  @@index([projectId])
+  @@index([action])
+  @@index([createdAt])
   @@map("audit_logs")
 }
