@@ -4,5 +4,6 @@ node_modules
 
 /generated/prisma
 
+/dist
 
 asyncronix-*.json

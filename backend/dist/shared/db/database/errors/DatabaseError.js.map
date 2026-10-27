@@ -1,1 +1,0 @@
-{"version":3,"file":"DatabaseError.js","sourceRoot":"","sources":["../../../../../src/shared/db/database/errors/DatabaseError.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,gBAAgB,EAAE,MAAM,uBAAuB,CAAA;AAGxD,MAAM,OAAO,aAAc,SAAQ,gBAAgB;IAC/C,YAAY,UAAkB,gBAAgB;QAC1C,KAAK,CAAC,OAAO,CAAC,CAAA;QACd,IAAI,CAAC,IAAI,GAAG,eAAe,CAAA;IAC/B,CAAC;CACJ"}

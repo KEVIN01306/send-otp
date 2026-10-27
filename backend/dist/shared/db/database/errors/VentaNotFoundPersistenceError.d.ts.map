@@ -1,1 +1,0 @@
-{"version":3,"file":"VentaNotFoundPersistenceError.d.ts","sourceRoot":"","sources":["../../../../../src/shared/db/database/errors/VentaNotFoundPersistenceError.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,gBAAgB,EAAE,MAAM,uBAAuB,CAAC;AAEzD,qBAAa,6BAA8B,SAAQ,gBAAgB;gBACnD,OAAO,SAAwB;CAI9C"}

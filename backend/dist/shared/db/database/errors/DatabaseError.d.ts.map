@@ -1,1 +1,0 @@
-{"version":3,"file":"DatabaseError.d.ts","sourceRoot":"","sources":["../../../../../src/shared/db/database/errors/DatabaseError.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,gBAAgB,EAAE,MAAM,uBAAuB,CAAA;AAGxD,qBAAa,aAAc,SAAQ,gBAAgB;gBACnC,OAAO,GAAE,MAAyB;CAIjD"}

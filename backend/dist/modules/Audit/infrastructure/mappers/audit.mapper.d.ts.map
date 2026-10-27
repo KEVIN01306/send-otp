@@ -1,1 +1,0 @@
-{"version":3,"file":"audit.mapper.d.ts","sourceRoot":"","sources":["../../../../../src/modules/Audit/infrastructure/mappers/audit.mapper.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,QAAQ,EAAe,MAAM,kCAAkC,CAAC;AAE9E,qBAAa,WAAW;IACpB,MAAM,CAAC,QAAQ,CAAC,GAAG,EAAE,GAAG,GAAG,QAAQ;CAWtC"}

@@ -1,1 +1,0 @@
-{"version":3,"file":"InvalidPermissionError.d.ts","sourceRoot":"","sources":["../../../../../src/shared/db/database/errors/InvalidPermissionError.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,gBAAgB,EAAE,MAAM,uBAAuB,CAAC;AAEzD,qBAAa,sBAAuB,SAAQ,gBAAgB;gBAC5C,OAAO,SAAqC;CAG3D"}

@@ -1,1 +1,0 @@
-{"version":3,"file":"InvalidTrasladoStatePersistenceError.d.ts","sourceRoot":"","sources":["../../../../../src/shared/db/database/errors/InvalidTrasladoStatePersistenceError.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,gBAAgB,EAAE,MAAM,uBAAuB,CAAC;AAEzD,qBAAa,oCAAqC,SAAQ,gBAAgB;gBAC1D,OAAO,SAA2B;CAIjD"}

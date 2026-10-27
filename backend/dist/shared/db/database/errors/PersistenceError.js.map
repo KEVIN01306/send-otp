@@ -1,1 +1,0 @@
-{"version":3,"file":"PersistenceError.js","sourceRoot":"","sources":["../../../../../src/shared/db/database/errors/PersistenceError.ts"],"names":[],"mappings":"AAEA,MAAM,OAAgB,gBAAiB,SAAQ,KAAK;IAChD,YAAY,OAAe;QACvB,KAAK,CAAC,OAAO,CAAC,CAAA;QACd,IAAI,CAAC,IAAI,GAAG,IAAI,CAAC,WAAW,CAAC,IAAI,CAAA;IACrC,CAAC;CACJ"}

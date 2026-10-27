@@ -1,1 +1,0 @@
-{"version":3,"file":"auth-session.entity.d.ts","sourceRoot":"","sources":["../../../../src/modules/Auth/domain/auth-session.entity.ts"],"names":[],"mappings":"AAEA,MAAM,WAAW,WAAW;IACxB,EAAE,EAAE,MAAM,CAAC;IACX,KAAK,EAAE,MAAM,CAAC;IACd,MAAM,EAAE,MAAM,CAAC;IACf,SAAS,EAAE,IAAI,CAAC;IAChB,SAAS,EAAE,IAAI,CAAC;CACnB"}
