@@ -5,7 +5,7 @@ import { OtpMapper } from './mappers/otp.mapper.js';
 import prismaClient from '../../../infrastructure/config/prisma/prisma.config.js';
 
 export class PrismaOtpRepository implements IOtpRepository {
-  constructor(private prisma: PrismaClient = prismaClient) {}
+  constructor(private prisma: PrismaClient = prismaClient) { }
 
   public async findRecentOtp(projectId: string, recipientEmail: string, sinceDate: Date): Promise<OtpTokenEntity | null> {
     const recent = await this.prisma.otpToken.findFirst({

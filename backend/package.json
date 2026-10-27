@@ -1,7 +1,7 @@
 {
-  "name": "auth-notifier-service",
+  "name": "send-otp",
   "version": "1.0.0",
-  "description": "backend for auth-notifier-service",
+  "description": "backend for send-otp",
   "main": "server.ts",
   "type": "module",
   "scripts": {
@@ -9,6 +9,9 @@
     "test:watch": "vitest",
     "dev": "cross-env NODE_ENV=development nodemon --exec node --import tsx src/server.ts",
     "db:migrate": "npx prisma migrate dev",
+    "db:push": "npx prisma db push",
+    "db:generate": "npx prisma generate",
+    "db:seed": "npx prisma db seed",
     "db:studio": "npx prisma studio",
     "start": "node --import tsx src/server.ts",
     "build": "tsc && tsc-alias"

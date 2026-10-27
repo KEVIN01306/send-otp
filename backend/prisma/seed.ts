@@ -68,5 +68,5 @@ main()
     })
     .catch(async (e) => {
         console.error('❌ Error durante la ejecución del seed:', e);
-        await prisma.$disconnect();
+
     });
